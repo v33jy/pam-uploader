@@ -13,7 +13,7 @@ TRACKING_LOG = os.path.join(_DIR, "uploaded_pam.json")
 TRANSFORMED_DIR = os.path.join(_DIR, "transformed")
 
 sys.path.insert(0, _DIR)
-from transform import DEFAULT_COLUMNS, DEFAULT_TIMESTAMP_FORMAT, output_header, parse_raw_pam
+from transform import DEFAULT_COLUMNS, DEFAULT_TIMESTAMP_FORMAT, parse_raw_pam
 from uploader import upload_file
 
 
@@ -36,14 +36,11 @@ except Exception as e:
     raise SystemExit(1)
 
 SOURCE_DIR = cfg["pam"]["source_dir"] or os.path.join(os.path.expanduser("~"), "Desktop", "PAM data")
-CHANNELS = set(cfg["pam"]["channels"])
-VARIABLES = cfg["pam"]["variables"]
-# Merged (not replaced) with defaults, so a config that only overrides one
-# column (e.g. just "timestamp") doesn't drop the rest.
+SENSOR_TYPE = cfg["pam"].get("sensor_type") or "PAM"
 COLUMNS = {**DEFAULT_COLUMNS, **(cfg["pam"].get("columns") or {})}
 TIMESTAMP_FORMAT = cfg["pam"].get("timestamp_format") or DEFAULT_TIMESTAMP_FORMAT
 YEAR_OVERRIDE = cfg["pam"].get("year_override")
-OUTPUT_HEADER = output_header(VARIABLES)
+LOG_TAG = f"[{SENSOR_TYPE}]"
 
 
 def _load_tracking():
@@ -64,17 +61,17 @@ def _save_tracking(tracking):
     os.replace(tmp_path, TRACKING_LOG)
 
 
-def _write_transformed_csv(rows, out_path):
+def _write_transformed_csv(header, rows, out_path):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=OUTPUT_HEADER)
+        writer = csv.DictWriter(f, fieldnames=header)
         writer.writeheader()
         writer.writerows(rows)
 
 
 def upload_job():
     if not os.path.exists(SOURCE_DIR):
-        print(f"[PAM] Source dir not found: {SOURCE_DIR}")
+        print(f"{LOG_TAG} Source dir not found: {SOURCE_DIR}")
         return
 
     tracking = _load_tracking()
@@ -82,7 +79,7 @@ def upload_job():
 
     raw_files = sorted(glob.glob(os.path.join(SOURCE_DIR, "*.csv")))
     if not raw_files:
-        print(f"[PAM] No CSV files in {SOURCE_DIR}")
+        print(f"{LOG_TAG} No CSV files in {SOURCE_DIR}")
         return
 
     uploaded_count = 0
@@ -91,22 +88,20 @@ def upload_job():
         mtime_date = date.fromtimestamp(os.path.getmtime(filepath))
         is_today = mtime_date == today
 
-        # A file not modified today is done growing — once it's been
-        # uploaded successfully, skip it on future cycles instead of
-        # re-sending an unchanged file forever.
+        # Today's file keeps growing, so it's always re-sent; past files are tracked once uploaded.
         if not is_today and tracking.get(filename):
             continue
 
         year = YEAR_OVERRIDE or mtime_date.year
-        rows = parse_raw_pam(filepath, CHANNELS, year, VARIABLES, COLUMNS, TIMESTAMP_FORMAT)
+        header, rows = parse_raw_pam(filepath, year, COLUMNS, TIMESTAMP_FORMAT)
         if not rows:
-            print(f"[PAM] {filename}: no matching rows (channels {sorted(CHANNELS)}), skipping")
+            print(f"{LOG_TAG} {filename}: no valid rows, skipping")
             continue
 
         transformed_path = os.path.join(TRANSFORMED_DIR, filename)
-        _write_transformed_csv(rows, transformed_path)
+        _write_transformed_csv(header, rows, transformed_path)
 
-        remote_path = f"{station_id}/sensor/PAM/{filename}"
+        remote_path = f"{station_id}/sensor/{SENSOR_TYPE}/{filename}"
         ok = upload_file(transformed_path, remote_path, cfg["http"]["base_url"].rstrip("/"), cfg["http"]["shared_key"])
         if ok:
             uploaded_count += 1
@@ -114,7 +109,7 @@ def upload_job():
                 tracking[filename] = True
                 _save_tracking(tracking)
 
-    print(f"[PAM] {uploaded_count}/{len(raw_files)} file(s) uploaded this cycle")
+    print(f"{LOG_TAG} {uploaded_count}/{len(raw_files)} file(s) uploaded this cycle")
 
 
 if __name__ == "__main__":

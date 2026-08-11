@@ -7,34 +7,13 @@ station:
 
 pam:
   enabled: true
-  # Leave blank to default to "<user home>/Desktop/PAM data".
-  source_dir: ""
-  interval_seconds: 86400     # daily — matches how often the logger starts a new file
-  channels: [3, 4, 5, 6, 7, 8]
-  # Which raw columns to keep in the uploaded CSV — this list *is* what
-  # shows up as selectable variables on the dashboard, so add/remove here
-  # rather than in transform.py to change what gets exposed.
-  variables: [FvFm, YII, YNPQ, YNO, PAR, Temp, AirHum]
-  # Raw file column names for the fields the transform needs structurally
-  # (channel/probe id, plus how to get a timestamp). Only change these if
-  # the logger software renames its own columns — everything else (which
-  # variables, which channels) is controlled by the lists above.
-  columns:
+  sensor_type: PAM             # see docs/PAM-데이터-연동-매뉴얼.md
+  source_dir: ""               # blank = "<user home>/Desktop/PAM data"
+  interval_seconds: 86400      # daily
+  columns:                     # see docs/PAM-데이터-연동-매뉴얼.md section 4
     channel: Channel
-    # Two ways to get a timestamp — set one pair, leave the other empty:
-    # (a) day-of-year + seconds-since-midnight, combined using year_override
-    #     or the file's own mtime year (today's PAM logger format):
     doy: DOY
     time_sec: TimeSec
-    # (b) a single column that's already a full timestamp string — set this
-    #     and clear doy/time_sec above to use it directly instead. Its
-    #     value must be one whitespace-free token (e.g. ISO-8601
-    #     "2026-08-05T00:30:14", not "2026-08-05 00:30:14" with a space —
-    #     the raw file is parsed as whitespace-separated columns).
     timestamp: null
-  # strptime format for columns.timestamp, only used when that's set.
   timestamp_format: "%Y-%m-%dT%H:%M:%S"
-  # Only needed in DOY+TimeSec mode, if a file's DOY doesn't match the year
-  # it was last modified in (e.g. reprocessing a Dec 31 file after New
-  # Year's). Leave null otherwise. Unused in direct-timestamp mode.
   year_override: null
